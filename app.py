@@ -8,7 +8,7 @@ Render.com / Railway 등 무료 호스팅 서비스에 배포 가능
 from flask import Flask, request, jsonify, render_template_string
 import requests as req
 from bs4 import BeautifulSoup
-import re, time, json
+import re, time, json, os
 from urllib.parse import quote, quote_plus
 from datetime import datetime
 
@@ -137,23 +137,28 @@ def cross_reference_search(product_number=None, product_name=None, api_key=None)
     if not product_number and not product_name:
         return {'error':'제품번호 또는 상품명을 입력해주세요.'}
 
+  client_id = client_secret = None
+if api_key and ':' in api_key:
+    client_id, client_secret = api_key.split(':',1)
+if not client_id:
+    client_id = os.environ.get('NAVER_CLIENT_ID','')
+    client_secret = os.environ.get('NAVER_CLIENT_SECRET','')
+if not client_id or not client_secret:
     client_id = client_secret = None
-    if api_key and ':' in api_key:
-        client_id, client_secret = api_key.split(':',1)
 
     def do_search(query):
         if client_id and client_secret:
             return search_naver_api(query, client_id, client_secret)
         return search_danawa(query)
 
-    r_num = r_name = []
-    if product_number:
-        r_num = do_search(product_number)
-        if r_num and 'error' in r_num[0]: r_num = []
-        if product_name: time.sleep(REQUEST_DELAY)
-    if product_name:
-        r_name = do_search(product_name)
-        if r_name and 'error' in r_name[0]: r_name = []
+  r_num = r_name = []
+if product_name:
+    r_name = do_search(product_name)
+    if r_name and 'error' in r_name[0]: r_name = []
+    if product_number: time.sleep(REQUEST_DELAY)
+if product_number and not r_name:
+    r_num = do_search(product_number)
+    if r_num and 'error' in r_num[0]: r_num = []
 
     if r_num and r_name:
         matched = find_cross(r_num, r_name)
