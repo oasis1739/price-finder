@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-네이버 쇼핑 최저가 검색기 — 웹서버 배포 버전
-Render.com / Railway 등 무료 호스팅 서비스에 배포 가능
-"""
 
 from flask import Flask, request, jsonify, render_template_string
 import requests as req
@@ -14,14 +10,10 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# ──────────────────────────────────────────────
-#  검색 엔진 로직
-# ──────────────────────────────────────────────
-
 REQUEST_TIMEOUT = 15
-MAX_RESULTS     = 15
+MAX_RESULTS = 15
 MATCH_THRESHOLD = 0.3
-REQUEST_DELAY   = 1.2
+REQUEST_DELAY = 1.2
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
@@ -46,7 +38,7 @@ def search_danawa(query, max_results=MAX_RESULTS):
     try:
         resp = req.get(url, headers={**HEADERS,'Referer':'https://www.danawa.com/'}, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, 'lxml')
+        soup = BeautifulSoup(resp.text, 'html.parser')
         results = []
         for item in soup.select('li.prod_item'):
             try:
@@ -70,9 +62,9 @@ def search_danawa(query, max_results=MAX_RESULTS):
             except: continue
         return results
     except req.exceptions.Timeout:
-        return [{'error':'요청 시간 초과'}]
+        return [{'error':'요청 시간 초과. 다나와 서버 응답이 늦습니다.'}]
     except Exception as e:
-        return [{'error': str(e)}]
+        return [{'error': f'접근 차단 또는 오류: {str(e)}'}]
 
 def search_naver_api(query, client_id, client_secret, max_results=MAX_RESULTS):
     url = "https://openapi.naver.com/v1/search/shop.json"
@@ -137,7 +129,6 @@ def cross_reference_search(product_number=None, product_name=None, api_key=None)
     if not product_number and not product_name:
         return {'error':'제품번호 또는 상품명을 입력해주세요.'}
 
-    # UI 입력 키 우선, 없으면 환경변수 사용
     client_id = client_secret = None
     if api_key and ':' in api_key:
         client_id, client_secret = api_key.split(':',1)
@@ -153,12 +144,10 @@ def cross_reference_search(product_number=None, product_name=None, api_key=None)
         return search_danawa(query)
 
     r_num = r_name = []
-    # 상품명이 있으면 상품명 우선 검색
     if product_name:
         r_name = do_search(product_name)
         if r_name and 'error' in r_name[0]: r_name = []
         if product_number: time.sleep(REQUEST_DELAY)
-    # 제품번호는 상품명 검색 결과가 없을 때만 보조 검색
     if product_number and not r_name:
         r_num = do_search(product_number)
         if r_num and 'error' in r_num[0]: r_num = []
@@ -192,7 +181,7 @@ def cross_reference_search(product_number=None, product_name=None, api_key=None)
         best = dict(min(valid, key=lambda x: x['price']))
         best['match_method'] = '제품번호 검색 최저가'; pool = valid
     else:
-        return {'product_number':product_number or '','product_name':product_name or '','error':'검색 결과 없음'}
+        return {'product_number':product_number or '','product_name':product_name or '','error':'검색 결과 없음. (IP가 차단되었을 수 있습니다.)'}
 
     top5 = sorted([r for r in pool if 'price' in r], key=lambda x: x['price'])[:5]
     return {
@@ -210,11 +199,6 @@ def cross_reference_search(product_number=None, product_name=None, api_key=None)
         'timestamp':      datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'top_results':    top5,
     }
-
-
-# ──────────────────────────────────────────────
-#  Flask 라우트
-# ──────────────────────────────────────────────
 
 @app.route('/')
 def index():
@@ -234,17 +218,12 @@ def api_search():
 def health():
     return jsonify({'status': 'ok'})
 
-
-# ──────────────────────────────────────────────
-#  HTML 페이지
-# ──────────────────────────────────────────────
-
 HTML_PAGE = r"""<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🛒 최저가 검색기</title>
+<title>최저가 검색기</title>
 <style>
   :root {
     --green:#03C75A;--green-d:#02a14b;--blue:#1a73e8;--orange:#e85d04;
@@ -310,18 +289,17 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
 <div class="header">
   <div>
-    <h1>🛒 최저가 검색기</h1>
-    <small>네이버 쇼핑 · 다나와 기반 — 제품번호 + 상품명 교차 검색</small>
+    <h1>최저가 검색기</h1>
+    <small>네이버 쇼핑 · 다나와 기반 - 제품번호 + 상품명 교차 검색</small>
   </div>
 </div>
 
 <div class="tabs">
-  <button class="tab-btn active" onclick="switchTab(this,'single')">🔍 단일 검색</button>
-  <button class="tab-btn" onclick="switchTab(this,'batch')">📂 일괄 검색 (엑셀/CSV)</button>
-  <button class="tab-btn" onclick="switchTab(this,'help')">❓ 도움말</button>
+  <button class="tab-btn active" onclick="switchTab(this,'single')">단일 검색</button>
+  <button class="tab-btn" onclick="switchTab(this,'batch')">일괄 검색 (엑셀/CSV)</button>
+  <button class="tab-btn" onclick="switchTab(this,'help')">도움말</button>
 </div>
 
-<!-- 단일 검색 -->
 <div id="tab-single" class="tab-content active">
 <div class="container">
   <div class="card">
@@ -344,8 +322,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
         </div>
       </div>
       <div class="btn-row">
-        <button class="btn btn-primary" id="search-btn" onclick="doSearch()">🔍 검색</button>
-        <button class="btn btn-secondary" onclick="clearSingle()">🗑️ 초기화</button>
+        <button class="btn btn-primary" id="search-btn" onclick="doSearch()">검색</button>
+        <button class="btn btn-secondary" onclick="clearSingle()">초기화</button>
         <span class="hint">※ 제품번호 또는 상품명 중 하나만 입력해도 검색 가능 · Enter 키 가능</span>
       </div>
     </div>
@@ -372,7 +350,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
           </table>
         </div>
         <div style="margin-top:12px">
-          <button class="btn btn-secondary btn-sm" onclick="saveSingleCSV()">💾 CSV로 저장</button>
+          <button class="btn btn-secondary btn-sm" onclick="saveSingleCSV()">CSV로 저장</button>
         </div>
       </div>
     </div>
@@ -380,7 +358,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
 </div>
 </div>
 
-<!-- 일괄 검색 -->
 <div id="tab-batch" class="tab-content">
 <div class="container">
   <div class="card">
@@ -392,7 +369,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
            ondragleave="this.classList.remove('dragover')"
            ondrop="handleDrop(event)">
         <input type="file" id="file-input" accept=".csv,.xlsx,.xls" onchange="handleFile(this.files[0])">
-        <div style="font-size:36px">📂</div>
         <div style="font-size:15px;font-weight:700;margin:6px 0">엑셀(.xlsx) 또는 CSV 파일을 여기에 끌어다 놓거나 클릭해서 선택</div>
         <div class="hint">첫 번째 행: 헤더(제품번호, 상품명) · 나머지: 상품 목록</div>
       </div>
@@ -400,7 +376,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
           <strong id="file-name-lbl"></strong>
           <span id="file-row-count" class="badge badge-ok"></span>
-          <button class="btn btn-secondary btn-sm" onclick="clearBatch()">✕ 제거</button>
+          <button class="btn btn-secondary btn-sm" onclick="clearBatch()">제거</button>
         </div>
         <div class="excel-preview table-wrap"><table id="preview-table"></table></div>
       </div>
@@ -411,8 +387,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
         </div>
       </div>
       <div class="btn-row" style="margin-top:12px">
-        <button class="btn btn-primary" id="batch-btn" onclick="doBatch()" disabled>▶ 일괄 검색 시작</button>
-        <button class="btn btn-secondary btn-sm" onclick="downloadSample()">📄 샘플 CSV 다운로드</button>
+        <button class="btn btn-primary" id="batch-btn" onclick="doBatch()" disabled>일괄 검색 시작</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadSample()">샘플 CSV 다운로드</button>
       </div>
     </div>
   </div>
@@ -438,7 +414,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
           </table>
         </div>
         <div style="margin-top:12px">
-          <button class="btn btn-primary btn-sm" onclick="saveBatchCSV()">💾 결과 저장 (CSV)</button>
+          <button class="btn btn-primary btn-sm" onclick="saveBatchCSV()">결과 저장 (CSV)</button>
         </div>
       </div>
     </div>
@@ -446,22 +422,21 @@ HTML_PAGE = r"""<!DOCTYPE html>
 </div>
 </div>
 
-<!-- 도움말 -->
 <div id="tab-help" class="tab-content">
 <div class="container">
 <div class="card"><div class="card-title">사용법 안내</div>
 <div class="card-body" style="line-height:1.9;font-size:14px">
-<h3 style="color:var(--green);margin-bottom:8px">🔍 단일 검색</h3>
+<h3 style="color:var(--green);margin-bottom:8px">단일 검색</h3>
 <p>· 제품번호 또는 상품명 입력 후 [검색] 클릭 (Enter 키도 가능)</p>
 <p>· 둘 다 입력하면 교차검색으로 더 정확한 결과</p>
 <p>· 예: 제품번호 <code>SM-S928B</code> + 상품명 <code>갤럭시 S24 울트라</code></p>
 <hr style="margin:16px 0;border-color:var(--border)">
-<h3 style="color:var(--green);margin-bottom:8px">📂 일괄 검색 (엑셀/CSV)</h3>
+<h3 style="color:var(--green);margin-bottom:8px">일괄 검색 (엑셀/CSV)</h3>
 <p>· 엑셀(.xlsx) 또는 CSV 파일 업로드 → 한 번에 여러 상품 검색</p>
 <p>· 첫 번째 행: <code>제품번호</code>, <code>상품명</code> 헤더</p>
 <p>· [샘플 CSV 다운로드] 버튼으로 양식 확인</p>
 <hr style="margin:16px 0;border-color:var(--border)">
-<h3 style="color:var(--green);margin-bottom:8px">⚙️ 기술 정보</h3>
+<h3 style="color:var(--green);margin-bottom:8px">기술 정보</h3>
 <p>· 데이터: 다나와 (네이버 쇼핑과 동일한 최저가)</p>
 <p>· 액세서리·케이스 자동 제외 + 가격 이상값 제거</p>
 </div>
@@ -493,27 +468,27 @@ async function doSearch(){
     const data=await resp.json();
     document.getElementById('single-loading').style.display='none';
     if(data.error){
-      document.getElementById('single-error').textContent='❌ '+data.error;
+      document.getElementById('single-error').textContent=data.error;
       document.getElementById('single-error').style.display='block';
     }else{renderSingleResult(data);}
   }catch(e){
     document.getElementById('single-loading').style.display='none';
-    document.getElementById('single-error').textContent='❌ 오류: '+e;
+    document.getElementById('single-error').textContent='오류: '+e;
     document.getElementById('single-error').style.display='block';
   }
-  btn.disabled=false;btn.innerHTML='🔍 검색';
+  btn.disabled=false;btn.innerHTML='검색';
 }
 function renderSingleResult(data){
   singleResult=data;
   document.getElementById('res-price').textContent=data.price_text||'-';
   document.getElementById('res-name').textContent=(data.found_name||'-')+' ('+( data.match_method||'')+')';
   const ld=document.getElementById('res-links');ld.innerHTML='';
-  if(data.link){const b=document.createElement('button');b.className='btn btn-blue btn-sm';b.textContent='🛍️ 네이버 쇼핑에서 보기';b.onclick=()=>window.open(data.link,'_blank');ld.appendChild(b);}
-  if(data.danawa_link){const b=document.createElement('button');b.className='btn btn-orange btn-sm';b.textContent='📊 다나와에서 보기';b.onclick=()=>window.open(data.danawa_link,'_blank');ld.appendChild(b);}
+  if(data.link){const b=document.createElement('button');b.className='btn btn-blue btn-sm';b.textContent='네이버 쇼핑에서 보기';b.onclick=()=>window.open(data.link,'_blank');ld.appendChild(b);}
+  if(data.danawa_link){const b=document.createElement('button');b.className='btn btn-orange btn-sm';b.textContent='다나와에서 보기';b.onclick=()=>window.open(data.danawa_link,'_blank');ld.appendChild(b);}
   const tbody=document.getElementById('single-tbody');tbody.innerHTML='';
   (data.top_results||[]).forEach((item,i)=>{
     const tr=document.createElement('tr');if(i===0)tr.className='rank-1';
-    tr.innerHTML=`<td>${i===0?'⭐':''}${i+1}</td><td>${esc(item.name||'').substring(0,50)}</td><td><strong>${esc(item.price_text||'N/A')}</strong></td><td class="link-cell">${item.naver_link?`<a href="${esc(item.naver_link)}" target="_blank">네이버 ↗</a>`:'-'}</td><td class="link-cell">${item.danawa_link?`<a href="${esc(item.danawa_link)}" target="_blank">다나와 ↗</a>`:'-'}</td>`;
+    tr.innerHTML=`<td>${i+1}</td><td>${esc(item.name||'').substring(0,50)}</td><td><strong>${esc(item.price_text||'N/A')}</strong></td><td class="link-cell">${item.naver_link?`<a href="${esc(item.naver_link)}" target="_blank">네이버</a>`:'-'}</td><td class="link-cell">${item.danawa_link?`<a href="${esc(item.danawa_link)}" target="_blank">다나와</a>`:'-'}</td>`;
     tbody.appendChild(tr);
   });
   document.getElementById('single-result').style.display='block';
@@ -563,7 +538,7 @@ function parseExcel(file){
 }
 function showFilePreview(filename,rows,headers){
   batchRows=rows;
-  document.getElementById('file-name-lbl').textContent='📄 '+filename;
+  document.getElementById('file-name-lbl').textContent=filename;
   document.getElementById('file-row-count').textContent=rows.length+'개 상품';
   const t=document.getElementById('preview-table');
   const preview=rows.slice(0,5);
@@ -600,16 +575,16 @@ async function doBatch(){
         body:JSON.stringify({product_number:num||null,product_name:name||null,api_key:api||null})});
       const data=await resp.json();
       batchResults.push(data);addBatchRow(data,done);
-      batchLog(data.error?`  ❌ ${data.error}`:`  ✅ ${data.price_text||'-'}`);
+      batchLog(data.error?`실패: ${data.error}`:`완료: ${data.price_text||'-'}`);
     }catch(e){
       const err={product_number:num,product_name:name,error:'오류'};
-      batchResults.push(err);addBatchRow(err,done);batchLog(`  ❌ ${e}`);
+      batchResults.push(err);addBatchRow(err,done);batchLog(`실패: ${e}`);
     }
     done++;updateProgress(done,total,'');
     await new Promise(r=>setTimeout(r,200));
   }
   const ok=batchResults.filter(r=>!r.error).length;
-  document.getElementById('batch-summary').textContent=`✅ 완료: ${ok}/${total}개 성공`;
+  document.getElementById('batch-summary').textContent=`완료: ${ok}/${total}개 성공`;
   document.getElementById('batch-result').style.display='block';
   document.getElementById('batch-btn').disabled=false;
   batchLog(`\n=== 완료: ${ok}/${total}개 성공 ===`);
@@ -617,14 +592,14 @@ async function doBatch(){
 function updateProgress(done,total,label){
   const pct=Math.round((done/total)*100);
   document.getElementById('prog-bar').style.width=pct+'%';
-  document.getElementById('prog-label').textContent=`${pct}% (${done}/${total})${label?' — '+label:''}`;
+  document.getElementById('prog-label').textContent=`${pct}% (${done}/${total})${label?' - '+label:''}`;
 }
 function batchLog(msg){const b=document.getElementById('batch-log');b.textContent+=msg+'\n';b.scrollTop=b.scrollHeight;}
 function addBatchRow(data,idx){
   const tbody=document.getElementById('batch-tbody');
   const tr=document.createElement('tr');
   const isErr=!!data.error;
-  tr.innerHTML=`<td>${esc(data.product_number||'')}</td><td>${esc((data.product_name||'').substring(0,18))}</td><td>${esc((data.found_name||data.error||'-').substring(0,28))}</td><td><strong>${esc(data.price_text||'-')}</strong></td><td class="link-cell">${data.link?`<a href="${esc(data.link)}" target="_blank">네이버 ↗</a>`:'-'}</td><td><span class="badge ${isErr?'badge-err':'badge-ok'}">${isErr?'실패':'완료'}</span></td>`;
+  tr.innerHTML=`<td>${esc(data.product_number||'')}</td><td>${esc((data.product_name||'').substring(0,18))}</td><td>${esc((data.found_name||data.error||'-').substring(0,28))}</td><td><strong>${esc(data.price_text||'-')}</strong></td><td class="link-cell">${data.link?`<a href="${esc(data.link)}" target="_blank">네이버</a>`:'-'}</td><td><span class="badge ${isErr?'badge-err':'badge-ok'}">${isErr?'실패':'완료'}</span></td>`;
   if(idx%2===1)tr.style.background='#f8f9fa';
   tbody.appendChild(tr);tr.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
@@ -649,4 +624,4 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 </html>"""
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(__import__('os').environ.get('PORT', 5000)), debug=False)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
