@@ -79,8 +79,7 @@ def search_naver_api(query, client_id, client_secret, max_results=MAX_RESULTS):
             lprice = int(item.get('lprice',0))
             if lprice <= 0: continue
             title = re.sub(r'<[^>]+>','', item.get('title','')).strip()
-            pid = item.get('productId','')
-            nlink = f"https://search.shopping.naver.com/catalog/{pid}" if pid else item.get('link','')
+            nlink = item.get('link','') 
             results.append({'name':title,'price':lprice,'price_text':f"{lprice:,}원",
                             'danawa_link':'','naver_link':nlink,'source':'naver_api'})
         return results
@@ -93,21 +92,27 @@ def calc_similarity(a, b):
     if not wa or not wb: return 0.0
     return len(wa & wb) / len(wa | wb)
 
-def filter_results(results, query, min_sim=0.25):
+def filter_results(results, query):
     if not query or not results: return results
+    
+    # 액세서리 제외
     def has_acc(name): return any(k in name.lower() for k in ACCESSORY_KEYWORDS)
     non_acc = [r for r in results if not has_acc(r.get('name',''))]
     working = non_acc if non_acc else results
-    tokens = set(re.findall(r'[a-zA-Z0-9가-힣]+', query.lower()))
+
+    # 필수 키워드 모두 포함 여부 확인 (현실적 방안)
+    tokens = query.lower().split()
     if tokens:
-        def cov(n): return sum(1 for t in tokens if t in n.lower()) / len(tokens)
-        f2 = [r for r in working if cov(r.get('name','')) >= min_sim]
+        f2 = [r for r in working if all(t in r.get('name', '').lower() for t in tokens)]
         if f2: working = f2
+
+    # 가격 이상값 제외 (너무 저렴한 옵션 상품 방지, 하한선을 중간값의 20%로 상향)
     prices = sorted([r['price'] for r in working if 'price' in r])
     if len(prices) >= 3:
         med = prices[len(prices)//2]
-        f3 = [r for r in working if r.get('price',0) >= med*0.05]
+        f3 = [r for r in working if r.get('price',0) >= med*0.2]
         if f3: working = f3
+        
     return working if working else results
 
 def find_cross(a_list, b_list):
@@ -158,30 +163,34 @@ def cross_reference_search(product_number=None, product_name=None, api_key=None)
             best = dict(min(matched, key=lambda x: x['price']))
             best['match_method'] = '교차검색 일치'; pool = matched
         else:
-            valid = [r for r in r_name if 'price' in r]
-            if valid:
-                filtered = filter_results(valid, product_name)
-                pool = filtered if filtered else valid
-                best = dict(min(pool, key=lambda x: x['price']))
-                best['match_method'] = '상품명 검색 최저가'
+            valid_num = [r for r in r_num if 'price' in r]
+            if valid_num:
+                best = dict(min(valid_num, key=lambda x: x['price']))
+                best['match_method'] = '제품번호 단독 최저가'
+                pool = valid_num
             else:
-                valid = [r for r in r_num if 'price' in r]
-                best = dict(min(valid, key=lambda x: x['price']))
-                best['match_method'] = '제품번호 검색 최저가'; pool = valid
+                valid_name = [r for r in r_name if 'price' in r]
+                if valid_name:
+                    filtered = filter_results(valid_name, product_name)
+                    pool = filtered if filtered else valid_name
+                    best = dict(min(pool, key=lambda x: x['price']))
+                    best['match_method'] = '상품명 단독 최저가'
+                else:
+                    return {'error': '가격 정보 없음'}
     elif r_name:
         valid = [r for r in r_name if 'price' in r]
-        if not valid: return {'product_number':product_number or '','product_name':product_name or '','error':'가격 정보 없음'}
+        if not valid: return {'product_number':product_number or '','product_name':product_name or 'error':'가격 정보 없음'}
         filtered = filter_results(valid, product_name)
         pool = filtered if filtered else valid
         best = dict(min(pool, key=lambda x: x['price']))
         best['match_method'] = '상품명 검색 최저가'
     elif r_num:
         valid = [r for r in r_num if 'price' in r]
-        if not valid: return {'product_number':product_number or '','product_name':product_name or '','error':'가격 정보 없음'}
+        if not valid: return {'product_number':product_number or '','product_name':product_name or 'error':'가격 정보 없음'}
         best = dict(min(valid, key=lambda x: x['price']))
         best['match_method'] = '제품번호 검색 최저가'; pool = valid
     else:
-        return {'product_number':product_number or '','product_name':product_name or '','error':'검색 결과 없음. (IP가 차단되었을 수 있습니다.)'}
+        return {'product_number':product_number or '','product_name':product_name or 'error':'검색 결과 없음. (IP가 차단되었을 수 있습니다.)'}
 
     top5 = sorted([r for r in pool if 'price' in r], key=lambda x: x['price'])[:5]
     return {
@@ -308,11 +317,11 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <div class="form-grid">
         <div class="form-group">
           <label>제품번호 (모델번호)</label>
-          <input id="inp-num" type="text" placeholder="예: SM-S928B, MX000750" onkeydown="if(event.key==='Enter')doSearch()">
+          <input id="inp-num" type="text" placeholder="예: SM-S928B, HPN2502001" onkeydown="if(event.key==='Enter')doSearch()">
         </div>
         <div class="form-group">
           <label>상품명</label>
-          <input id="inp-name" type="text" placeholder="예: 갤럭시 S24 울트라" onkeydown="if(event.key==='Enter')doSearch()">
+          <input id="inp-name" type="text" placeholder="예: 갤럭시 S24 울트라, 간절기 니트 베스트" onkeydown="if(event.key==='Enter')doSearch()">
         </div>
       </div>
       <div class="form-grid" style="margin-top:10px">
@@ -437,8 +446,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <p>· [샘플 CSV 다운로드] 버튼으로 양식 확인</p>
 <hr style="margin:16px 0;border-color:var(--border)">
 <h3 style="color:var(--green);margin-bottom:8px">기술 정보</h3>
-<p>· 데이터: 다나와 (네이버 쇼핑과 동일한 최저가)</p>
-<p>· 액세서리·케이스 자동 제외 + 가격 이상값 제거</p>
+<p>· 데이터: 네이버 오픈API 기반 쇼핑 정보 최저가 탐색</p>
+<p>· 액세서리·케이스 자동 제외 + 가격 이상값 필터링 적용</p>
 </div>
 </div>
 </div>
@@ -604,7 +613,7 @@ function addBatchRow(data,idx){
   tbody.appendChild(tr);tr.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 function downloadSample(){
-  const csv='\uFEFF제품번호,상품명\nSM-S928B,갤럭시 S24 울트라\nSM-S921B,갤럭시 S24\nSM-A556N,갤럭시 A55\n,아이폰 15 Pro\nMX000750,로지텍 MX 마스터 3S\n';
+  const csv='\uFEFF제품번호,상품명\nSM-S928B,갤럭시 S24 울트라\nHPN2502001,간절기 니트 베스트\nSM-A556N,갤럭시 A55\n,아이폰 15 Pro\nMX000750,로지텍 MX 마스터 3S\n';
   trigger(csv,'products_sample.csv','text/csv;charset=utf-8');
 }
 function saveSingleCSV(){if(!singleResult)return;downloadCSV([singleResult],'result.csv');}
@@ -621,7 +630,4 @@ function trigger(content,filename,mime){
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 </script>
 </body>
-</html>"""
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
+</html>
