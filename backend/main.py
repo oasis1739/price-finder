@@ -7,7 +7,7 @@ import openpyxl
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, RedirectResponse
 from pydantic import BaseModel
 
 from scrapers import ALL_SCRAPERS, SCRAPER_MAP
@@ -166,6 +166,15 @@ async def search_from_excel(file: UploadFile = File(...), sites: Optional[str] =
         })
 
     return {"items": all_output}
+
+
+@app.get("/api/redirect/fashionplus/{goods_id}")
+def redirect_fashionplus(goods_id: str):
+    """패션플러스 상품으로 리다이렉트 (403 방지)"""
+    return RedirectResponse(
+        url=f"https://www.fashionplus.co.kr/goods/item?goodsId={goods_id}",
+        status_code=301
+    )
 
 
 @app.get("/api/export/excel")

@@ -414,6 +414,15 @@
       }
     }
 
+    function getProxiedUrl(url) {
+      // 패션플러스 링크를 리다이렉트로 변환 (403 방지)
+      const match = url.match(/goodsId=(\d+)/);
+      if (match && url.includes('fashionplus.co.kr')) {
+        return `${API}/api/redirect/fashionplus/${match[1]}`;
+      }
+      return url;
+    }
+
     function renderSingleResults(results, number, name) {
       const el = document.getElementById('single-results');
       if (!results.length) {
@@ -427,6 +436,7 @@
         const img = r.image_url
           ? `<img class="result-img" src="${r.image_url}" alt="" onerror="this.style.display='none'" />`
           : `<div class="result-img-placeholder">🛍️</div>`;
+        const proxiedUrl = getProxiedUrl(r.url);
         return `
           <div class="result-card ${isLowest ? 'lowest' : ''}">
             ${img}
@@ -437,7 +447,7 @@
                 <span class="result-price-total">${r.total_price.toLocaleString()}원</span>
                 <span class="result-price-ship">배송비: ${r.shipping_fee > 0 ? r.shipping_fee.toLocaleString() + '원' : '별도확인'}</span>
               </div>
-              <a class="result-link" href="${r.url}" target="_blank">🔗 상품 보기</a>
+              <a class="result-link" href="${proxiedUrl}" target="_blank">🔗 상품 보기</a>
               <div class="result-matched">검색방식: ${r.matched_by === 'number' ? '품번' : '상품명'}</div>
             </div>
           </div>`;
@@ -510,6 +520,7 @@
           rows += `<tr><td colspan="7" style="color:#9ca3af;padding:8px 12px">검색 결과 없음</td></tr>`;
         } else {
           item.results.slice(0, 3).forEach((r, ri) => {
+            const proxiedUrl = getProxiedUrl(r.url);
             rows += `
               <tr>
                 <td class="td-site">${r.site}</td>
@@ -517,7 +528,7 @@
                 <td class="td-price">${r.total_price.toLocaleString()}원 ${ri === 0 ? '<span class="badge-lowest">최저</span>' : ''}</td>
                 <td>${r.shipping_fee > 0 ? r.shipping_fee.toLocaleString() + '원' : '-'}</td>
                 <td>${r.matched_by === 'number' ? '품번' : '상품명'}</td>
-                <td><a href="${r.url}" target="_blank">🔗 보기</a></td>
+                <td><a href="${proxiedUrl}" target="_blank">🔗 보기</a></td>
               </tr>`;
           });
         }
