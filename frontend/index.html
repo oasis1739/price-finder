@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>최저가 검색기</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #f5f6fa;
+      color: #222;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #2563eb;
+      color: #fff;
+      padding: 18px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    }
+    header h1 { font-size: 1.4rem; font-weight: 700; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 4px; margin-bottom: 20px; }
+    .tab-btn {
+      padding: 10px 22px;
+      border: none;
+      border-radius: 8px 8px 0 0;
+      background: #dde3f0;
+      cursor: pointer;
+      font-size: .95rem;
+      font-weight: 600;
+      color: #555;
+      transition: background .2s;
+    }
+    .tab-btn.active { background: #fff; color: #2563eb; border-bottom: 2px solid #fff; }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Card */
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.07);
+      margin-bottom: 24px;
+    }
+
+    .card h2 { font-size: 1rem; font-weight: 700; margin-bottom: 16px; color: #333; }
+
+    /* Form */
+    .form-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 160px; }
+    label { font-size: .85rem; color: #666; font-weight: 600; }
+    input[type="text"] {
+      padding: 10px 14px;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      font-size: .95rem;
+      outline: none;
+      transition: border .2s;
+    }
+    input[type="text"]:focus { border-color: #2563eb; }
+
+    /* Site checkboxes */
+    .site-checks { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+    .site-check {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border: 1.5px solid #d1d5db;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: .85rem;
+      font-weight: 600;
+      transition: all .2s;
+      user-select: none;
+    }
+    .site-check input { display: none; }
+    .site-check.checked { border-color: #2563eb; background: #eff6ff; color: #2563eb; }
+
+    /* Buttons */
+    .btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: .95rem;
+      font-weight: 700;
+      transition: background .2s;
+    }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-secondary { background: #e5e7eb; color: #333; }
+    .btn-secondary:hover { background: #d1d5db; }
+    .btn-sm { padding: 6px 14px; font-size: .82rem; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* Excel upload */
+    .upload-area {
+      border: 2px dashed #93c5fd;
+      border-radius: 10px;
+      padding: 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: background .2s;
+      background: #f0f7ff;
+    }
+    .upload-area:hover { background: #dbeafe; }
+    .upload-area.dragover { background: #bfdbfe; border-color: #2563eb; }
+    .upload-area p { color: #64748b; margin-top: 8px; font-size: .9rem; }
+    .upload-area .icon { font-size: 2.5rem; }
+    #file-input { display: none; }
+
+    /* Results */
+    .results-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .results-meta span { font-size: .9rem; color: #555; }
+
+    /* Single search results */
+    .results-grid { display: grid; gap: 12px; }
+    .result-card {
+      background: #fff;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 16px;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      transition: box-shadow .2s;
+    }
+    .result-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.1); }
+    .result-card.lowest { border-color: #f59e0b; background: #fffbeb; }
+    .result-img {
+      width: 72px;
+      height: 72px;
+      object-fit: cover;
+      border-radius: 6px;
+      background: #f3f4f6;
+      flex-shrink: 0;
+    }
+    .result-img-placeholder {
+      width: 72px;
+      height: 72px;
+      border-radius: 6px;
+      background: #f3f4f6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      flex-shrink: 0;
+    }
+    .result-info { flex: 1; min-width: 0; }
+    .result-site {
+      display: inline-block;
+      font-size: .75rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: #e0e7ff;
+      color: #3730a3;
+      margin-bottom: 4px;
+    }
+    .result-name {
+      font-size: .95rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .result-prices { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .result-price-total {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #dc2626;
+    }
+    .result-price-ship { font-size: .82rem; color: #6b7280; }
+    .result-matched { font-size: .75rem; color: #9ca3af; margin-top: 4px; }
+    .badge-lowest {
+      background: #f59e0b;
+      color: #fff;
+      font-size: .72rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .result-link {
+      display: inline-block;
+      margin-top: 8px;
+      font-size: .82rem;
+      color: #2563eb;
+      text-decoration: none;
+    }
+    .result-link:hover { text-decoration: underline; }
+
+    /* Bulk results table */
+    .bulk-table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .88rem;
+    }
+    th {
+      background: #f1f5f9;
+      padding: 10px 12px;
+      text-align: left;
+      font-weight: 700;
+      border-bottom: 2px solid #e2e8f0;
+      white-space: nowrap;
+    }
+    td {
+      padding: 9px 12px;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: middle;
+    }
+    tr:hover td { background: #f8fafc; }
+    .td-price { font-weight: 700; color: #dc2626; }
+    .td-site { white-space: nowrap; }
+    td a { color: #2563eb; text-decoration: none; font-size: .82rem; }
+    td a:hover { text-decoration: underline; }
+    .group-header td {
+      background: #eff6ff;
+      font-weight: 700;
+      color: #1e40af;
+      padding: 8px 12px;
+    }
+
+    /* Loading */
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid #bfdbfe;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-msg { text-align: center; padding: 40px; color: #6b7280; }
+    .empty-msg { text-align: center; padding: 40px; color: #9ca3af; font-size: .95rem; }
+    .error-msg { background: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px; padding: 14px; color: #dc2626; margin-bottom: 16px; }
+
+    @media (max-width: 600px) {
+      .form-row { flex-direction: column; }
+      .result-card { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span style="font-size:1.5rem">🔍</span>
+    <h1>최저가 검색기</h1>
+  </header>
+
+  <div class="container">
+    <!-- 사이트 선택 -->
+    <div class="card">
+      <h2>검색 사이트 선택</h2>
+      <div class="site-checks" id="site-checks">
+        <div class="loading-msg"><span class="spinner"></span> 사이트 목록 불러오는 중...</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('single')">단일 검색</button>
+      <button class="tab-btn" onclick="switchTab('bulk')">일괄 검색 (엑셀)</button>
+    </div>
+
+    <!-- Single Search -->
+    <div id="tab-single" class="tab-panel active">
+      <div class="card">
+        <h2>상품 검색</h2>
+        <div class="form-row">
+          <div class="form-group">
+            <label>품번</label>
+            <input type="text" id="inp-number" placeholder="예) AB1234" />
+          </div>
+          <div class="form-group">
+            <label>상품명</label>
+            <input type="text" id="inp-name" placeholder="예) 썸머 쿨 하프소매 볼륨 니트" />
+          </div>
+          <button class="btn btn-primary" id="btn-search" onclick="doSingleSearch()">검색</button>
+        </div>
+      </div>
+
+      <div id="single-results"></div>
+    </div>
+
+    <!-- Bulk Search (Excel) -->
+    <div id="tab-bulk" class="tab-panel">
+      <div class="card">
+        <h2>엑셀 업로드 (품번 + 상품명)</h2>
+        <div style="margin-bottom:12px; display:flex; gap:8px;">
+          <a href="/api/export/excel" class="btn btn-secondary btn-sm">📥 템플릿 다운로드</a>
+        </div>
+        <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
+          <div class="icon">📂</div>
+          <p>클릭하거나 파일을 드래그해서 업로드<br><small>A열: 품번 / B열: 상품명 (헤더 있어도 됩니다)</small></p>
+          <p id="file-name" style="margin-top:10px; color:#2563eb; font-weight:600;"></p>
+        </div>
+        <input type="file" id="file-input" accept=".xlsx,.xls" onchange="onFileSelect(this)" />
+        <div style="margin-top:14px; display:flex; gap:8px;">
+          <button class="btn btn-primary" id="btn-bulk-search" onclick="doBulkSearch()" disabled>검색 시작</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportBulkExcel()" id="btn-export" disabled>📤 결과 엑셀 저장</button>
+        </div>
+      </div>
+
+      <div id="bulk-results"></div>
+    </div>
+  </div>
+
+  <script>
+    let selectedFile = null;
+    let bulkData = null;
+    const API = '';
+
+    // ── Init ──
+    async function init() {
+      try {
+        const res = await fetch(`${API}/api/sites`);
+        const sites = await res.json();
+        renderSiteChecks(sites);
+      } catch {
+        document.getElementById('site-checks').innerHTML = '<p style="color:#dc2626">사이트 목록을 불러오지 못했습니다.</p>';
+      }
+    }
+
+    function renderSiteChecks(sites) {
+      const el = document.getElementById('site-checks');
+      el.innerHTML = '';
+      sites.forEach(s => {
+        const unavail = s.needs_api && !s.api_available;
+        const label = document.createElement('label');
+        label.className = 'site-check' + (unavail ? '' : ' checked');
+        label.title = unavail ? '네이버 API 키 필요 (환경변수 NAVER_CLIENT_ID, NAVER_CLIENT_SECRET 설정)' : '';
+        label.innerHTML = `<input type="checkbox" ${unavail ? '' : 'checked'} value="${s.name}" onchange="toggleSite(this)" />${s.name}${unavail ? ' ⚠️' : ''}`;
+        el.appendChild(label);
+      });
+      const hasUnavail = sites.some(s => s.needs_api && !s.api_available);
+      if (hasUnavail) {
+        const note = document.createElement('p');
+        note.style.cssText = 'color:#f59e0b;font-size:.8rem;margin-top:6px;';
+        note.innerHTML = '⚠️ <strong>GS샵/퀸잇</strong>은 네이버 쇼핑 API 키가 필요합니다. <a href="#" onclick="showNaverHelp();return false" style="color:#2563eb">설정 방법</a>';
+        el.appendChild(note);
+      }
+    }
+
+    function showNaverHelp() {
+      alert(`네이버 쇼핑 API 설정 방법:
+1. https://developers.naver.com 에서 앱 등록
+2. 검색 API (쇼핑) 권한 추가
+3. 서버 환경변수 설정:
+   NAVER_CLIENT_ID=발급받은ID
+   NAVER_CLIENT_SECRET=발급받은시크릿
+4. Render.com 사용시: Environment 탭에 추가`);
+    }
+
+    function toggleSite(cb) {
+      cb.parentElement.classList.toggle('checked', cb.checked);
+    }
+
+    function getSelectedSites() {
+      return [...document.querySelectorAll('#site-checks input:checked')].map(i => i.value);
+    }
+
+    // ── Tabs ──
+    function switchTab(name) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById(`tab-${name}`).classList.add('active');
+      event.target.classList.add('active');
+    }
+
+    // ── Single Search ──
+    async function doSingleSearch() {
+      const number = document.getElementById('inp-number').value.trim();
+      const name = document.getElementById('inp-name').value.trim();
+      if (!number && !name) { alert('품번 또는 상품명을 입력해주세요.'); return; }
+
+      const btn = document.getElementById('btn-search');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>검색중...';
+
+      document.getElementById('single-results').innerHTML = '<div class="loading-msg"><span class="spinner"></span> 검색 중입니다...</div>';
+
+      const sites = getSelectedSites();
+      try {
+        const res = await fetch(`${API}/api/search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product_number: number, product_name: name, sites: sites.length ? sites : null }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '오류 발생');
+        renderSingleResults(data.results, number, name);
+      } catch (e) {
+        document.getElementById('single-results').innerHTML = `<div class="error-msg">오류: ${e.message}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '검색';
+      }
+    }
+
+    function renderSingleResults(results, number, name) {
+      const el = document.getElementById('single-results');
+      if (!results.length) {
+        el.innerHTML = '<div class="empty-msg">검색 결과가 없습니다.</div>';
+        return;
+      }
+
+      const meta = `<div class="results-meta"><span>총 <strong>${results.length}</strong>건 검색됨 | 품번: ${number || '-'} / 상품명: ${name || '-'}</span></div>`;
+      const cards = results.map((r, i) => {
+        const isLowest = i === 0;
+        const img = r.image_url
+          ? `<img class="result-img" src="${r.image_url}" alt="" onerror="this.style.display='none'" />`
+          : `<div class="result-img-placeholder">🛍️</div>`;
+        return `
+          <div class="result-card ${isLowest ? 'lowest' : ''}">
+            ${img}
+            <div class="result-info">
+              <div><span class="result-site">${r.site}</span> ${isLowest ? '<span class="badge-lowest">최저가</span>' : ''}</div>
+              <div class="result-name" title="${r.product_name}">${r.product_name}</div>
+              <div class="result-prices">
+                <span class="result-price-total">${r.total_price.toLocaleString()}원</span>
+                <span class="result-price-ship">배송비: ${r.shipping_fee > 0 ? r.shipping_fee.toLocaleString() + '원' : '별도확인'}</span>
+              </div>
+              <a class="result-link" href="${r.url}" target="_blank">🔗 상품 보기</a>
+              <div class="result-matched">검색방식: ${r.matched_by === 'number' ? '품번' : '상품명'}</div>
+            </div>
+          </div>`;
+      }).join('');
+
+      el.innerHTML = `<div class="card">${meta}<div class="results-grid">${cards}</div></div>`;
+    }
+
+    // ── File Upload ──
+    function onFileSelect(input) {
+      selectedFile = input.files[0];
+      if (selectedFile) {
+        document.getElementById('file-name').textContent = selectedFile.name;
+        document.getElementById('btn-bulk-search').disabled = false;
+      }
+    }
+
+    const uploadArea = document.getElementById('upload-area');
+    uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+    uploadArea.addEventListener('drop', e => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      const f = e.dataTransfer.files[0];
+      if (f) {
+        selectedFile = f;
+        document.getElementById('file-name').textContent = f.name;
+        document.getElementById('btn-bulk-search').disabled = false;
+      }
+    });
+
+    // ── Bulk Search ──
+    async function doBulkSearch() {
+      if (!selectedFile) { alert('파일을 선택해주세요.'); return; }
+
+      const btn = document.getElementById('btn-bulk-search');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>검색중...';
+      document.getElementById('bulk-results').innerHTML = '<div class="loading-msg"><span class="spinner"></span> 검색 중입니다... 상품 수에 따라 시간이 걸릴 수 있습니다.</div>';
+
+      const sites = getSelectedSites().join(',');
+      const form = new FormData();
+      form.append('file', selectedFile);
+
+      try {
+        const url = sites ? `${API}/api/search/excel?sites=${encodeURIComponent(sites)}` : `${API}/api/search/excel`;
+        const res = await fetch(url, { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '오류 발생');
+        bulkData = data.items;
+        document.getElementById('btn-export').disabled = false;
+        renderBulkResults(data.items);
+      } catch (e) {
+        document.getElementById('bulk-results').innerHTML = `<div class="error-msg">오류: ${e.message}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '검색 시작';
+      }
+    }
+
+    function renderBulkResults(items) {
+      const el = document.getElementById('bulk-results');
+      if (!items.length) { el.innerHTML = '<div class="empty-msg">결과 없음</div>'; return; }
+
+      let rows = '';
+      items.forEach((item, idx) => {
+        const best = item.results[0];
+        rows += `<tr class="group-header"><td colspan="7">📦 ${idx + 1}. 품번: ${item.input_number || '-'} / 상품명: ${item.input_name || '-'}</td></tr>`;
+        if (!item.results.length) {
+          rows += `<tr><td colspan="7" style="color:#9ca3af;padding:8px 12px">검색 결과 없음</td></tr>`;
+        } else {
+          item.results.slice(0, 3).forEach((r, ri) => {
+            rows += `
+              <tr>
+                <td class="td-site">${r.site}</td>
+                <td>${r.product_name}</td>
+                <td class="td-price">${r.total_price.toLocaleString()}원 ${ri === 0 ? '<span class="badge-lowest">최저</span>' : ''}</td>
+                <td>${r.shipping_fee > 0 ? r.shipping_fee.toLocaleString() + '원' : '-'}</td>
+                <td>${r.matched_by === 'number' ? '품번' : '상품명'}</td>
+                <td><a href="${r.url}" target="_blank">🔗 보기</a></td>
+              </tr>`;
+          });
+        }
+      });
+
+      el.innerHTML = `
+        <div class="card">
+          <h2>일괄 검색 결과 (${items.length}개 상품)</h2>
+          <div class="bulk-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>사이트</th><th>상품명</th><th>가격</th><th>배송비</th><th>검색방식</th><th>링크</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }
+
+    // ── Export ──
+    function exportBulkExcel() {
+      if (!bulkData) return;
+
+      const rows = [['품번', '상품명(입력)', '사이트', '검색된상품명', '가격', '배송비', '합계', '검색방식', '링크']];
+      bulkData.forEach(item => {
+        if (!item.results.length) {
+          rows.push([item.input_number, item.input_name, '결과없음', '', '', '', '', '', '']);
+        } else {
+          item.results.slice(0, 3).forEach(r => {
+            rows.push([
+              item.input_number, item.input_name,
+              r.site, r.product_name,
+              r.price, r.shipping_fee, r.total_price,
+              r.matched_by === 'number' ? '품번' : '상품명',
+              r.url,
+            ]);
+          });
+        }
+      });
+
+      // CSV로 내보내기 (브라우저에서 xlsx 없이)
+      const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `최저가검색결과_${new Date().toLocaleDateString('ko')}.csv`;
+      a.click();
+    }
+
+    // Enter key search
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && document.getElementById('tab-single').classList.contains('active')) {
+        doSingleSearch();
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>
