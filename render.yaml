@@ -1,8 +1,7 @@
 services:
   - type: web
-    name: price-finder
+    name: price-finder-app
     runtime: python
-    pythonVersion: "3.11.9"
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
@@ -11,6 +10,3 @@ services:
         sync: false
       - key: NAVER_CLIENT_SECRET
         sync: false
-      - key: PYTHON_VERSION
-        value: "3.11.9"
-    staticPublishPath: ../frontend

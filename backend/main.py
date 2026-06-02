@@ -2,7 +2,7 @@ import asyncio
 import io
 import os
 import re
-from typing import Optional
+from typing import List, Optional
 import openpyxl
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,7 +28,7 @@ FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 class SearchRequest(BaseModel):
     product_number: str = ""
     product_name: str = ""
-    sites: Optional[list[str]] = None
+    sites: Optional[List[str]] = None
 
 
 class ProductItem(BaseModel):
@@ -37,8 +37,8 @@ class ProductItem(BaseModel):
 
 
 class BulkSearchRequest(BaseModel):
-    items: list[ProductItem]
-    sites: Optional[list[str]] = None
+    items: List[ProductItem]
+    sites: Optional[List[str]] = None
 
 
 def normalize_product_number(raw: str) -> str:
