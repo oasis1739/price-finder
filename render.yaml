@@ -3,7 +3,7 @@ services:
     name: price-finder
     runtime: python
     rootDir: backend
-    buildCommand: pip install -r requirements.txt && playwright install chromium --with-deps
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: NAVER_CLIENT_ID
