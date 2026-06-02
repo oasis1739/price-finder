@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "price-finder",
+      "runtimeExecutable": "/Users/junghakjun/ai_work/claude/price-finder/.venv/bin/uvicorn",
+      "runtimeArgs": ["main:app", "--host", "0.0.0.0", "--port", "8100"],
+      "cwd": "/Users/junghakjun/ai_work/claude/price-finder/backend",
+      "env": {
+        "PYTHONPATH": "/Users/junghakjun/ai_work/claude/price-finder/backend"
+      },
+      "port": 8100
+    }
+  ]
+}
