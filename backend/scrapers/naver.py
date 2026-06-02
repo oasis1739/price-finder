@@ -29,7 +29,7 @@ class NaverScraper(BaseScraper):
             "X-Naver-Client-Id": self.client_id,
             "X-Naver-Client-Secret": self.client_secret,
         }
-        params = {"query": query, "display": 20, "sort": "price"}
+        params = {"query": query, "display": 20, "sort": "asc"}
 
         async with httpx.AsyncClient(timeout=15) as client:
             try:
