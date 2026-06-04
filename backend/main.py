@@ -25,6 +25,14 @@ app.add_middleware(
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 
 
+@app.middleware("http")
+async def prevent_html_cache(request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.endswith(".html"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 class SearchRequest(BaseModel):
     product_number: str = ""
     product_name: str = ""
