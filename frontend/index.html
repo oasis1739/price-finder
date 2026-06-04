@@ -331,7 +331,8 @@
     let selectedFile = null;
     let bulkData = null;
     let isTemplateDownloading = false;
-    const BULK_CHUNK_SIZE = 50;
+    const BULK_CHUNK_SIZE = 20;
+    const BULK_MAX_RETRIES = 2;
     const API = '';
 
     // ── Init ──
@@ -381,6 +382,30 @@
 
     function getSelectedSites() {
       return [...document.querySelectorAll('#site-checks input:checked')].map(i => i.value);
+    }
+
+    async function readJsonResponse(res, fallbackMessage) {
+      const text = await res.text();
+      let data = null;
+
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          const preview = text.replace(/\s+/g, ' ').trim().slice(0, 160);
+          throw new Error(`${fallbackMessage} 응답을 읽을 수 없습니다. ${preview ? `서버 응답: ${preview}` : ''}`);
+        }
+      }
+
+      if (!res.ok) {
+        throw new Error(data?.detail || `${fallbackMessage} 실패 (${res.status})`);
+      }
+
+      if (!data) {
+        throw new Error(`${fallbackMessage} 응답이 비어 있습니다.`);
+      }
+
+      return data;
     }
 
     // ── Tabs ──
@@ -533,8 +558,7 @@
 
       try {
         const parsedRes = await fetch(`${API}/api/excel/items`, { method: 'POST', body: form });
-        const parsed = await parsedRes.json();
-        if (!parsedRes.ok) throw new Error(parsed.detail || '엑셀을 읽을 수 없습니다.');
+        const parsed = await readJsonResponse(parsedRes, '엑셀 읽기');
 
         const items = parsed.items;
         const total = items.length;
@@ -546,13 +570,7 @@
           const to = Math.min(start + chunk.length, total);
           renderBulkProgress(start, total, `${from}~${to}번째 상품 검색 중...`, bulkData);
 
-          const res = await fetch(`${API}/api/search/bulk`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items: chunk, sites: sites.length ? sites : null }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.detail || '오류 발생');
+          const data = await searchBulkChunk(chunk, sites, from, to, total);
 
           bulkData = bulkData.concat(data.items);
           renderBulkProgress(bulkData.length, total, `${bulkData.length}개 검색 완료`, bulkData);
@@ -562,10 +580,46 @@
         renderBulkResults(bulkData);
       } catch (e) {
         document.getElementById('bulk-results').innerHTML = `<div class="error-msg">오류: ${e.message}</div>`;
+        if (bulkData.length) {
+          document.getElementById('btn-export').disabled = false;
+          document.getElementById('bulk-results').innerHTML += `<div class="card">${renderBulkTable(bulkData, `중단 전까지 검색된 결과 (${bulkData.length}개 상품)`)}</div>`;
+        }
       } finally {
         btn.disabled = false;
         btn.textContent = '검색 시작';
       }
+    }
+
+    async function searchBulkChunk(chunk, sites, from, to, total) {
+      let lastError = null;
+
+      for (let attempt = 1; attempt <= BULK_MAX_RETRIES + 1; attempt++) {
+        try {
+          if (attempt > 1) {
+            renderBulkProgress(
+              bulkData.length,
+              total,
+              `${from}~${to}번째 상품 재시도 중... (${attempt - 1}/${BULK_MAX_RETRIES})`,
+              bulkData
+            );
+          }
+
+          const res = await fetch(`${API}/api/search/bulk`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: chunk, sites: sites.length ? sites : null }),
+          });
+
+          return await readJsonResponse(res, `${from}~${to}번째 상품 검색`);
+        } catch (e) {
+          lastError = e;
+          if (attempt <= BULK_MAX_RETRIES) {
+            await new Promise(resolve => setTimeout(resolve, 1200 * attempt));
+          }
+        }
+      }
+
+      throw new Error(`${from}~${to}번째 상품 검색 실패: ${lastError.message}`);
     }
 
     function renderBulkProgress(done, total, message, items = null) {
