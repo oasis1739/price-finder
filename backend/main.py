@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import io
 import os
 import re
@@ -23,6 +24,10 @@ app.add_middleware(
 )
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
+BULK_MAX_ITEMS_PER_REQUEST = 20
+BULK_RESULT_LIMIT = 3
+EXCEL_MAX_ITEMS = 1000
+bulk_search_lock = asyncio.Lock()
 
 
 @app.middleware("http")
@@ -57,26 +62,36 @@ def normalize_product_number(raw: str) -> str:
 
 async def parse_excel_items(file: UploadFile) -> list[ProductItem]:
     content = await file.read()
+    wb = None
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(content))
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
         ws = wb.active
+
+        headers = [str(cell.value or "").strip() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+
+        num_col = next((i for i, h in enumerate(headers) if "품번" in h or "코드" in h or "번호" in h), None)
+        name_col = next((i for i, h in enumerate(headers) if "상품명" in h or "상품" in h or "이름" in h), None)
+
+        if num_col is None and name_col is None:
+            num_col, name_col = 0, 1
+
+        items = []
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            pnum = str(row[num_col] or "").strip() if num_col is not None and num_col < len(row) else ""
+            pname = str(row[name_col] or "").strip() if name_col is not None and name_col < len(row) else ""
+            if pnum or pname:
+                items.append(ProductItem(product_number=pnum, product_name=pname))
+                if len(items) > EXCEL_MAX_ITEMS:
+                    raise HTTPException(status_code=400, detail=f"엑셀은 최대 {EXCEL_MAX_ITEMS}개 상품까지 처리할 수 있습니다")
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=400, detail="엑셀 파일을 읽을 수 없습니다")
-
-    headers = [str(cell.value or "").strip() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-
-    num_col = next((i for i, h in enumerate(headers) if "품번" in h or "코드" in h or "번호" in h), None)
-    name_col = next((i for i, h in enumerate(headers) if "상품명" in h or "상품" in h or "이름" in h), None)
-
-    if num_col is None and name_col is None:
-        num_col, name_col = 0, 1
-
-    items = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        pnum = str(row[num_col] or "").strip() if num_col is not None and num_col < len(row) else ""
-        pname = str(row[name_col] or "").strip() if name_col is not None and name_col < len(row) else ""
-        if pnum or pname:
-            items.append(ProductItem(product_number=pnum, product_name=pname))
+    finally:
+        if wb:
+            wb.close()
+        del content
+        gc.collect()
 
     if not items:
         raise HTTPException(status_code=400, detail="엑셀에서 상품 데이터를 찾을 수 없습니다")
@@ -84,7 +99,7 @@ async def parse_excel_items(file: UploadFile) -> list[ProductItem]:
     return items
 
 
-async def run_search(product_number: str, product_name: str, sites: Optional[list[str]]) -> list[dict]:
+async def run_search(product_number: str, product_name: str, sites: Optional[list[str]], limit: Optional[int] = None) -> list[dict]:
     pnum = normalize_product_number(product_number) if product_number else ""
 
     if sites:
@@ -102,6 +117,8 @@ async def run_search(product_number: str, product_name: str, sites: Optional[lis
         all_results.extend(res)
 
     all_results.sort(key=lambda x: x.total_price)
+    if limit:
+        all_results = all_results[:limit]
 
     return [
         {
@@ -151,15 +168,20 @@ async def search(req: SearchRequest):
 async def search_bulk(req: BulkSearchRequest):
     if not req.items:
         raise HTTPException(status_code=400, detail="검색할 상품이 없습니다")
+    if len(req.items) > BULK_MAX_ITEMS_PER_REQUEST:
+        raise HTTPException(status_code=400, detail=f"한 번에 최대 {BULK_MAX_ITEMS_PER_REQUEST}개 상품까지 검색할 수 있습니다")
 
     all_output = []
-    for item in req.items:
-        results = await run_search(item.product_number, item.product_name, req.sites)
-        all_output.append({
-            "input_number": item.product_number,
-            "input_name": item.product_name,
-            "results": results,
-        })
+    async with bulk_search_lock:
+        for item in req.items:
+            results = await run_search(item.product_number, item.product_name, req.sites, limit=BULK_RESULT_LIMIT)
+            all_output.append({
+                "input_number": item.product_number,
+                "input_name": item.product_name,
+                "results": results,
+            })
+            del results
+        gc.collect()
 
     return {"items": all_output}
 
@@ -171,12 +193,14 @@ async def search_from_excel(file: UploadFile = File(...), sites: Optional[str] =
 
     all_output = []
     for item in items:
-        results = await run_search(item.product_number, item.product_name, site_list)
+        results = await run_search(item.product_number, item.product_name, site_list, limit=BULK_RESULT_LIMIT)
         all_output.append({
             "input_number": item.product_number,
             "input_name": item.product_name,
             "results": results,
         })
+        del results
+    gc.collect()
 
     return {"items": all_output}
 
