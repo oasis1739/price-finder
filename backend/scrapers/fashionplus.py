@@ -10,7 +10,7 @@ HEADERS = {
 }
 
 FETCH_URL = "https://www.fashionplus.co.kr/search/goods/fetch"
-GOODS_BASE = "https://www.fashionplus.co.kr/goods/item?goodsId={id}"
+GOODS_BASE = "https://www.fashionplus.co.kr/goods/detail/{id}"
 
 
 class FashionPlusScraper(BaseScraper):
@@ -38,7 +38,7 @@ class FashionPlusScraper(BaseScraper):
         for item in items[:5]:
             try:
                 name = item.get("name", "")
-                price = int(item.get("salePrice", 0))
+                price = int(item.get("displayPrice") or item.get("salePrice") or 0)
                 goods_id = item.get("id", "")
                 img = item.get("mainImageUrl") or item.get("thumbnailUrl") or ""
 

@@ -251,6 +251,11 @@
     .loading-msg { text-align: center; padding: 40px; color: #6b7280; }
     .empty-msg { text-align: center; padding: 40px; color: #9ca3af; font-size: .95rem; }
     .error-msg { background: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px; padding: 14px; color: #dc2626; margin-bottom: 16px; }
+    .progress-panel { text-align: left; max-width: 560px; margin: 0 auto; color: #475569; }
+    .progress-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-weight: 700; }
+    .progress-bar { height: 10px; background: #e2e8f0; border-radius: 999px; overflow: hidden; margin-bottom: 10px; }
+    .progress-fill { height: 100%; background: #2563eb; transition: width .25s ease; }
+    .progress-detail { font-size: .86rem; color: #64748b; line-height: 1.5; }
 
     @media (max-width: 600px) {
       .form-row { flex-direction: column; }
@@ -304,7 +309,7 @@
       <div class="card">
         <h2>엑셀 업로드 (품번 + 상품명)</h2>
         <div style="margin-bottom:12px; display:flex; gap:8px;">
-          <a href="/api/export/excel" class="btn btn-secondary btn-sm">📥 템플릿 다운로드</a>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-template" onclick="downloadTemplate()">📥 템플릿 다운로드</button>
         </div>
         <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
           <div class="icon">📂</div>
@@ -325,6 +330,8 @@
   <script>
     let selectedFile = null;
     let bulkData = null;
+    let isTemplateDownloading = false;
+    const BULK_CHUNK_SIZE = 50;
     const API = '';
 
     // ── Init ──
@@ -416,11 +423,41 @@
 
     function getProxiedUrl(url) {
       // 패션플러스 링크를 리다이렉트로 변환 (403 방지)
+      if (url.includes('fashionplus.co.kr/goods/detail/')) return url;
       const match = url.match(/goodsId=(\d+)/);
       if (match && url.includes('fashionplus.co.kr')) {
         return `${API}/api/redirect/fashionplus/${match[1]}`;
       }
       return url;
+    }
+
+    async function downloadTemplate() {
+      if (isTemplateDownloading) return;
+      const btn = document.getElementById('btn-template');
+      isTemplateDownloading = true;
+      btn.disabled = true;
+      btn.textContent = '다운로드 중...';
+
+      try {
+        const res = await fetch(`${API}/api/export/excel`);
+        if (!res.ok) throw new Error('템플릿을 다운로드하지 못했습니다.');
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'price-finder-template.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        setTimeout(() => {
+          isTemplateDownloading = false;
+          btn.disabled = false;
+          btn.textContent = '📥 템플릿 다운로드';
+        }, 1200);
+      }
     }
 
     function renderSingleResults(results, number, name) {
@@ -486,20 +523,43 @@
       const btn = document.getElementById('btn-bulk-search');
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span>검색중...';
-      document.getElementById('bulk-results').innerHTML = '<div class="loading-msg"><span class="spinner"></span> 검색 중입니다... 상품 수에 따라 시간이 걸릴 수 있습니다.</div>';
+      document.getElementById('btn-export').disabled = true;
+      bulkData = [];
+      renderBulkProgress(0, 0, '엑셀을 읽는 중입니다...');
 
-      const sites = getSelectedSites().join(',');
+      const sites = getSelectedSites();
       const form = new FormData();
       form.append('file', selectedFile);
 
       try {
-        const url = sites ? `${API}/api/search/excel?sites=${encodeURIComponent(sites)}` : `${API}/api/search/excel`;
-        const res = await fetch(url, { method: 'POST', body: form });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || '오류 발생');
-        bulkData = data.items;
+        const parsedRes = await fetch(`${API}/api/excel/items`, { method: 'POST', body: form });
+        const parsed = await parsedRes.json();
+        if (!parsedRes.ok) throw new Error(parsed.detail || '엑셀을 읽을 수 없습니다.');
+
+        const items = parsed.items;
+        const total = items.length;
+        renderBulkProgress(0, total, '검색을 시작합니다...');
+
+        for (let start = 0; start < total; start += BULK_CHUNK_SIZE) {
+          const chunk = items.slice(start, start + BULK_CHUNK_SIZE);
+          const from = start + 1;
+          const to = Math.min(start + chunk.length, total);
+          renderBulkProgress(start, total, `${from}~${to}번째 상품 검색 중...`, bulkData);
+
+          const res = await fetch(`${API}/api/search/bulk`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: chunk, sites: sites.length ? sites : null }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || '오류 발생');
+
+          bulkData = bulkData.concat(data.items);
+          renderBulkProgress(bulkData.length, total, `${bulkData.length}개 검색 완료`, bulkData);
+        }
+
         document.getElementById('btn-export').disabled = false;
-        renderBulkResults(data.items);
+        renderBulkResults(bulkData);
       } catch (e) {
         document.getElementById('bulk-results').innerHTML = `<div class="error-msg">오류: ${e.message}</div>`;
       } finally {
@@ -508,16 +568,39 @@
       }
     }
 
+    function renderBulkProgress(done, total, message, items = null) {
+      const percent = total ? Math.round((done / total) * 100) : 0;
+      const resultCount = items ? items.filter(item => item.results.length).length : 0;
+      document.getElementById('bulk-results').innerHTML = `
+        <div class="card">
+          <div class="loading-msg">
+            <div class="progress-panel">
+              <div class="progress-top">
+                <span><span class="spinner"></span>${message}</span>
+                <span>${done}${total ? ` / ${total}` : ''}</span>
+              </div>
+              <div class="progress-bar"><div class="progress-fill" style="width:${percent}%"></div></div>
+              <div class="progress-detail">
+                진행률 ${percent}%${items ? ` · 결과 있음 ${resultCount}개 · 결과 없음 ${items.length - resultCount}개` : ''}
+              </div>
+            </div>
+          </div>
+          ${items && items.length ? renderBulkTable(items, '현재까지 검색 결과') : ''}
+        </div>`;
+    }
+
     function renderBulkResults(items) {
       const el = document.getElementById('bulk-results');
       if (!items.length) { el.innerHTML = '<div class="empty-msg">결과 없음</div>'; return; }
+      el.innerHTML = `<div class="card">${renderBulkTable(items, `일괄 검색 결과 (${items.length}개 상품)`)}</div>`;
+    }
 
+    function renderBulkTable(items, title) {
       let rows = '';
       items.forEach((item, idx) => {
-        const best = item.results[0];
-        rows += `<tr class="group-header"><td colspan="7">📦 ${idx + 1}. 품번: ${item.input_number || '-'} / 상품명: ${item.input_name || '-'}</td></tr>`;
+        rows += `<tr class="group-header"><td colspan="6">📦 ${idx + 1}. 품번: ${item.input_number || '-'} / 상품명: ${item.input_name || '-'}</td></tr>`;
         if (!item.results.length) {
-          rows += `<tr><td colspan="7" style="color:#9ca3af;padding:8px 12px">검색 결과 없음</td></tr>`;
+          rows += `<tr><td colspan="6" style="color:#9ca3af;padding:8px 12px">검색 결과 없음</td></tr>`;
         } else {
           item.results.slice(0, 3).forEach((r, ri) => {
             const proxiedUrl = getProxiedUrl(r.url);
@@ -534,9 +617,8 @@
         }
       });
 
-      el.innerHTML = `
-        <div class="card">
-          <h2>일괄 검색 결과 (${items.length}개 상품)</h2>
+      return `
+          <h2>${title}</h2>
           <div class="bulk-table-wrap">
             <table>
               <thead>
@@ -546,8 +628,7 @@
               </thead>
               <tbody>${rows}</tbody>
             </table>
-          </div>
-        </div>`;
+          </div>`;
     }
 
     // ── Export ──

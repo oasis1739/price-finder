@@ -47,6 +47,35 @@ def normalize_product_number(raw: str) -> str:
     return match.group(0) if match else raw
 
 
+async def parse_excel_items(file: UploadFile) -> list[ProductItem]:
+    content = await file.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content))
+        ws = wb.active
+    except Exception:
+        raise HTTPException(status_code=400, detail="엑셀 파일을 읽을 수 없습니다")
+
+    headers = [str(cell.value or "").strip() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+
+    num_col = next((i for i, h in enumerate(headers) if "품번" in h or "코드" in h or "번호" in h), None)
+    name_col = next((i for i, h in enumerate(headers) if "상품명" in h or "상품" in h or "이름" in h), None)
+
+    if num_col is None and name_col is None:
+        num_col, name_col = 0, 1
+
+    items = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        pnum = str(row[num_col] or "").strip() if num_col is not None and num_col < len(row) else ""
+        pname = str(row[name_col] or "").strip() if name_col is not None and name_col < len(row) else ""
+        if pnum or pname:
+            items.append(ProductItem(product_number=pnum, product_name=pname))
+
+    if not items:
+        raise HTTPException(status_code=400, detail="엑셀에서 상품 데이터를 찾을 수 없습니다")
+
+    return items
+
+
 async def run_search(product_number: str, product_name: str, sites: Optional[list[str]]) -> list[dict]:
     pnum = normalize_product_number(product_number) if product_number else ""
 
@@ -129,31 +158,7 @@ async def search_bulk(req: BulkSearchRequest):
 
 @app.post("/api/search/excel")
 async def search_from_excel(file: UploadFile = File(...), sites: Optional[str] = None):
-    content = await file.read()
-    try:
-        wb = openpyxl.load_workbook(io.BytesIO(content))
-        ws = wb.active
-    except Exception:
-        raise HTTPException(status_code=400, detail="엑셀 파일을 읽을 수 없습니다")
-
-    headers = [str(cell.value or "").strip() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-
-    num_col = next((i for i, h in enumerate(headers) if "품번" in h or "코드" in h or "번호" in h), None)
-    name_col = next((i for i, h in enumerate(headers) if "상품명" in h or "상품" in h or "이름" in h), None)
-
-    if num_col is None and name_col is None:
-        num_col, name_col = 0, 1
-
-    items = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        pnum = str(row[num_col] or "").strip() if num_col is not None and num_col < len(row) else ""
-        pname = str(row[name_col] or "").strip() if name_col is not None and name_col < len(row) else ""
-        if pnum or pname:
-            items.append(ProductItem(product_number=pnum, product_name=pname))
-
-    if not items:
-        raise HTTPException(status_code=400, detail="엑셀에서 상품 데이터를 찾을 수 없습니다")
-
+    items = await parse_excel_items(file)
     site_list = sites.split(",") if sites else None
 
     all_output = []
@@ -168,11 +173,23 @@ async def search_from_excel(file: UploadFile = File(...), sites: Optional[str] =
     return {"items": all_output}
 
 
+@app.post("/api/excel/items")
+async def get_items_from_excel(file: UploadFile = File(...)):
+    items = await parse_excel_items(file)
+    return {
+        "items": [
+            {"product_number": item.product_number, "product_name": item.product_name}
+            for item in items
+        ],
+        "count": len(items),
+    }
+
+
 @app.get("/api/redirect/fashionplus/{goods_id}")
 def redirect_fashionplus(goods_id: str):
     """패션플러스 상품으로 리다이렉트 (403 방지)"""
     return RedirectResponse(
-        url=f"https://www.fashionplus.co.kr/goods/item?goodsId={goods_id}",
+        url=f"https://www.fashionplus.co.kr/goods/detail/{goods_id}",
         status_code=301
     )
 
